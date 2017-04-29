@@ -32,6 +32,7 @@ parser.add_argument('--hidden-layers', default=5, type=int, help='Number of RNN 
 parser.add_argument('--rnn-type', default='gru', help='Type of the RNN. rnn|gru|lstm are supported')
 parser.add_argument('--epochs', default=70, type=int, help='Number of training epochs')
 parser.add_argument('--cuda', dest='cuda', action='store_true', help='Use cuda to train model')
+parser.add_argument('--half_precision', dest='half_precision', action='store_true', help='If CUDA enabled, use FP16')
 parser.add_argument('--lr', '--learning-rate', default=3e-4, type=float, help='initial learning rate')
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
 parser.add_argument('--max-norm', default=400, type=int, help='Norm cutoff to prevent explosion of gradients')
@@ -246,7 +247,8 @@ if __name__ == '__main__':
     if (not args.no_shuffle and start_epoch != 0) or args.no_sorta_grad:
         print("Shuffling batches for the following epochs")
         train_sampler.shuffle(start_epoch)
-
+    if args.half_precision:
+        model = model.half()
     if args.cuda and not args.distributed:
         model = torch.nn.DataParallel(model).cuda()
     elif args.cuda and args.distributed:
@@ -276,9 +278,13 @@ if __name__ == '__main__':
 
             if args.cuda:
                 inputs = inputs.cuda()
+                if args.half_precision:
+                    inputs = inputs.half()
 
             out = model(inputs)
             out = out.transpose(0, 1)  # TxNxH
+            if args.cuda and args.half_precision:  # Swap to single precision for optimization step
+                out = out.cuda().float()
 
             seq_length = out.size(0)
             sizes = Variable(input_percentages.mul_(int(seq_length)).int(), requires_grad=False)
@@ -296,12 +302,15 @@ if __name__ == '__main__':
 
             avg_loss += loss_value
             losses.update(loss_value, inputs.size(0))
+            if args.cuda and args.half_precision:
+                loss = loss.cuda().half()
 
             # compute gradient
             optimizer.zero_grad()
             loss.backward()
 
-            torch.nn.utils.clip_grad_norm(model.parameters(), args.max_norm)
+            torch.nn.utils.clip_grad_norm(parameters, args.max_norm)
+
             # SGD step
             optimizer.step()
 
@@ -352,6 +361,8 @@ if __name__ == '__main__':
 
             if args.cuda:
                 inputs = inputs.cuda()
+                if args.half_precision:
+                    inputs = inputs.half()
 
             out = model(inputs)  # NxTxH
             seq_length = out.size(1)
