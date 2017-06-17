@@ -65,7 +65,7 @@ class BatchBRNNReLU(nn.Module):
             nn.Linear(input_size, hidden_size),
             nn.BatchNorm1d(hidden_size)
         ))
-        self.rnn = nn.RNN(input_size=input_size, hidden_size=hidden_size, bidirectional=True, bias=False,
+        self.rnn = nn.RNN(input_size=hidden_size, hidden_size=hidden_size, bidirectional=True, bias=False,
                           nonlinearity='relu')
         self.rnn = self.rnn.cuda()
         from torch.backends import cudnn
@@ -74,8 +74,7 @@ class BatchBRNNReLU(nn.Module):
     def forward(self, x):
         x = self.w_x(x)
         x, _ = self.rnn(x)
-        if self.bidirectional:
-            x = x.view(x.size(0), x.size(1), 2, -1).sum(2).view(x.size(0), x.size(1), -1)  # (TxNxH*2) -> (TxNxH) by sum
+        x = x.view(x.size(0), x.size(1), 2, -1).sum(2).view(x.size(0), x.size(1), -1)  # (TxNxH*2) -> (TxNxH) by sum
         return x
 
 
@@ -121,7 +120,7 @@ class DeepSpeech(nn.Module):
         rnns.append(('0', rnn))
         for x in range(nb_layers - 1):
             if skip_rnn:
-                rnn = BatchBRNNReLU(input_size=rnn_input_size, hidden_size=rnn_hidden_size)
+                rnn = BatchBRNNReLU(input_size=rnn_hidden_size, hidden_size=rnn_hidden_size)
             else:
                 rnn = BatchRNN(input_size=rnn_hidden_size, hidden_size=rnn_hidden_size, rnn_type=rnn_type,
                                bidirectional=bidirectional)
