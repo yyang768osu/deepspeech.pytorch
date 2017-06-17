@@ -55,8 +55,12 @@ parser.add_argument('--log_dir', default='visualize/deepspeech_final', help='Loc
 parser.add_argument('--log_params', dest='log_params', action='store_true', help='Log parameter values and gradients')
 parser.add_argument('--no_bucketing', dest='no_bucketing', action='store_false',
                     help='Turn off bucketing and sample from dataset based on sequence length (smallest to largest)')
+parser.add_argument('--skip_rnn', dest='skip_rnn', action='store_true',
+                    help='Use Skip RNN implementation. WARNING this is GPU only, including the trained model!')
 parser.set_defaults(cuda=False, silent=False, checkpoint=False, visdom=False, augment=False, tensorboard=False,
                     log_params=False, no_bucketing=False)
+
+
 def to_np(x):
     return x.data.cpu().numpy()
 
@@ -149,7 +153,8 @@ def main():
                        labels=labels,
                        rnn_type=supported_rnns[rnn_type],
                        audio_conf=audio_conf,
-                       bidirectional=True)
+                       bidirectional=True,
+                       skip_rnn=args.skip_rnn)
     parameters = model.parameters()
     optimizer = torch.optim.SGD(parameters, lr=args.lr,
                                 momentum=args.momentum, nesterov=True)
@@ -169,7 +174,7 @@ def main():
             start_iter += 1
         avg_loss = int(package.get('avg_loss', 0))
         loss_results, cer_results, wer_results = package['loss_results'], package[
-                'cer_results'], package['wer_results']
+            'cer_results'], package['wer_results']
         if args.visdom and \
                         package['loss_results'] is not None and start_epoch > 0:  # Add previous scores to visdom graph
             x_axis = epochs[0:start_epoch]

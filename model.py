@@ -56,9 +56,32 @@ class BatchRNN(nn.Module):
         return x
 
 
+class BatchBRNNReLU(nn.Module):
+    def __init__(self, input_size, hidden_size):
+        super(BatchBRNNReLU, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.w_x = SequenceWise(nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.BatchNorm1d(hidden_size)
+        ))
+        self.rnn = nn.RNN(input_size=input_size, hidden_size=hidden_size, bidirectional=True, bias=False,
+                          nonlinearity='relu')
+        self.rnn = self.rnn.cuda()
+        from torch.backends import cudnn
+        self.rnn.input_mode = cudnn.CUDNN_SKIP_INPUT
+
+    def forward(self, x):
+        x = self.w_x(x)
+        x, _ = self.rnn(x)
+        if self.bidirectional:
+            x = x.view(x.size(0), x.size(1), 2, -1).sum(2).view(x.size(0), x.size(1), -1)  # (TxNxH*2) -> (TxNxH) by sum
+        return x
+
+
 class DeepSpeech(nn.Module):
     def __init__(self, rnn_type=nn.LSTM, labels="abc", rnn_hidden_size=768, nb_layers=5, audio_conf=None,
-                 bidirectional=True):
+                 bidirectional=True, skip_rnn=False):
         super(DeepSpeech, self).__init__()
 
         # model metadata needed for serialization/deserialization
@@ -90,12 +113,18 @@ class DeepSpeech(nn.Module):
         rnn_input_size *= 32
 
         rnns = []
-        rnn = BatchRNN(input_size=rnn_input_size, hidden_size=rnn_hidden_size, rnn_type=rnn_type,
-                       bidirectional=bidirectional, batch_norm=False)
+        if skip_rnn:
+            rnn = BatchBRNNReLU(input_size=rnn_input_size, hidden_size=rnn_hidden_size)
+        else:
+            rnn = BatchRNN(input_size=rnn_input_size, hidden_size=rnn_hidden_size, rnn_type=rnn_type,
+                           bidirectional=bidirectional, batch_norm=False)
         rnns.append(('0', rnn))
         for x in range(nb_layers - 1):
-            rnn = BatchRNN(input_size=rnn_hidden_size, hidden_size=rnn_hidden_size, rnn_type=rnn_type,
-                           bidirectional=bidirectional)
+            if skip_rnn:
+                rnn = BatchBRNNReLU(input_size=rnn_input_size, hidden_size=rnn_hidden_size)
+            else:
+                rnn = BatchRNN(input_size=rnn_hidden_size, hidden_size=rnn_hidden_size, rnn_type=rnn_type,
+                               bidirectional=bidirectional)
             rnns.append(('%d' % (x + 1), rnn))
         self.rnns = nn.Sequential(OrderedDict(rnns))
         fully_connected = nn.Sequential(
