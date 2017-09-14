@@ -2,13 +2,15 @@ import math
 from collections import OrderedDict
 
 import torch
+import sru
 import torch.nn as nn
 import torch.nn.functional as F
 
 supported_rnns = {
     'lstm': nn.LSTM,
     'rnn': nn.RNN,
-    'gru': nn.GRU
+    'gru': nn.GRU,
+    'sru': sru.SRU,
 }
 supported_rnns_inv = dict((v, k) for k, v in supported_rnns.items())
 
@@ -52,9 +54,15 @@ class BatchRNN(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
+        self.rnn_type = rnn_type
         self.batch_norm = SequenceWise(nn.BatchNorm1d(input_size)) if batch_norm else None
-        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size,
-                            bidirectional=bidirectional, bias=False)
+        if rnn_type == sru.SRU:
+            self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size,
+                                bidirectional=bidirectional, num_layers=1)
+            self.activation = nn.Hardtanh(0, 20, inplace=True)
+        else:
+            self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size,
+                                bidirectional=bidirectional, bias=False)
         self.num_directions = 2 if bidirectional else 1
 
     def forward(self, x):
@@ -63,7 +71,10 @@ class BatchRNN(nn.Module):
         x, _ = self.rnn(x)
         if self.bidirectional:
             x = x.view(x.size(0), x.size(1), 2, -1).sum(2).view(x.size(0), x.size(1), -1)  # (TxNxH*2) -> (TxNxH) by sum
-        self.rnn.flatten_parameters()
+        if self.rnn_type is not sru.SRU:
+            self.rnn.flatten_parameters()
+        else:
+            x = self.activation(x)
         return x
 
 
