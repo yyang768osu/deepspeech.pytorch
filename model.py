@@ -88,10 +88,8 @@ class DeepSpeech(nn.Module):
 
         self.conv = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2)),
-            nn.BatchNorm2d(32),
             nn.SELU(inplace=True),
             nn.Conv2d(32, 32, kernel_size=(21, 11), stride=(2, 1)),
-            nn.BatchNorm2d(32),
             nn.SELU(inplace=True)
         )
         # Based on above convolutions and spectrogram size using conv formula (W - F + 2P)/ S+1
@@ -110,7 +108,6 @@ class DeepSpeech(nn.Module):
             rnns.append(('%d' % (x + 1), rnn))
         self.rnns = nn.Sequential(OrderedDict(rnns))
         fully_connected = nn.Sequential(
-            nn.BatchNorm1d(rnn_hidden_size),
             nn.Linear(rnn_hidden_size, num_classes, bias=False)
         )
         self.fc = nn.Sequential(
