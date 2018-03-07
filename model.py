@@ -53,7 +53,7 @@ class BatchRNN(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
-        self.batch_norm = SequenceWise(nn.BatchNorm1d(input_size)) if batch_norm else None
+        self.batch_norm = nn.BatchNorm1d(input_size) if batch_norm else None
         self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size,
                             bidirectional=bidirectional, bias=False)
         self.num_directions = 2 if bidirectional else 1
@@ -63,10 +63,11 @@ class BatchRNN(nn.Module):
 
     def forward(self, x):
         if self.batch_norm is not None:
-            x = self.batch_norm(x)
-        x, _ = self.rnn(x)
+            x = x._replace(data=self.batch_norm(x.data))
+        x, h = self.rnn(x)
         if self.bidirectional:
-            x = x.view(x.size(0), x.size(1), 2, -1).sum(2).view(x.size(0), x.size(1), -1)  # (TxNxH*2) -> (TxNxH) by sum
+            x = x._replace(
+                data=x.data[:, :self.hidden_size] + x.data[:, self.hidden_size:])  # sum bidirectional outputs
         return x
 
 
@@ -168,14 +169,18 @@ class DeepSpeech(nn.Module):
         )
         self.inference_softmax = InferenceBatchSoftmax()
 
-    def forward(self, x):
+    def forward(self, x, lengths):
+        lengths = lengths.cpu().int()
         x = self.conv(x)
 
         sizes = x.size()
         x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
         x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
 
+        output_lengths = self.get_seq_lens(lengths)
+        x = nn.utils.rnn.pack_padded_sequence(x, output_lengths.data.numpy())
         x = self.rnns(x)
+        x, _ = nn.utils.rnn.pad_packed_sequence(x)
 
         if not self._bidirectional:  # no need for lookahead layer in bidirectional
             x = self.lookahead(x)
@@ -184,7 +189,20 @@ class DeepSpeech(nn.Module):
         x = x.transpose(0, 1)
         # identity in training mode, softmax in eval mode
         x = self.inference_softmax(x)
-        return x
+        return x, output_lengths
+
+    def get_seq_lens(self, input_length):
+        """
+        Given a 1D Tensor or Variable containing integer sequence lengths, return a 1D tensor or variable
+        containing the size sequences that will be output by the network.
+        :param input_length: 1D Tensor
+        :return: 1D Tensor scaled by model
+        """
+        seq_len = input_length
+        for m in self.conv:
+            if type(m) == nn.modules.conv.Conv2d:
+                seq_len = ((seq_len + 2 * m.padding[1] - m.dilation[1] * (m.kernel_size[1] - 1) - 1) / m.stride[1] + 1)
+        return seq_len.int()
 
     @classmethod
     def load_model(cls, path, cuda=False):

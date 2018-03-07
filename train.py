@@ -268,6 +268,7 @@ if __name__ == '__main__':
             if i == len(train_sampler):
                 break
             inputs, targets, input_percentages, target_sizes = data
+            input_sizes = Variable(input_percentages.mul_(int(inputs.size(3))).int(), requires_grad=False)
             # measure data loading time
             data_time.update(time.time() - end)
             inputs = Variable(inputs, requires_grad=False)
@@ -277,13 +278,10 @@ if __name__ == '__main__':
             if args.cuda:
                 inputs = inputs.cuda()
 
-            out = model(inputs)
+            out, output_sizes = model(inputs, input_sizes)
             out = out.transpose(0, 1)  # TxNxH
 
-            seq_length = out.size(0)
-            sizes = Variable(input_percentages.mul_(int(seq_length)).int(), requires_grad=False)
-
-            loss = criterion(out, targets, sizes, target_sizes)
+            loss = criterion(out, targets, output_sizes, target_sizes)
             loss = loss / inputs.size(0)  # average the loss by minibatch
 
             loss_sum = loss.data.sum()
@@ -340,6 +338,7 @@ if __name__ == '__main__':
         model.eval()
         for i, (data) in tqdm(enumerate(test_loader), total=len(test_loader)):
             inputs, targets, input_percentages, target_sizes = data
+            input_sizes = Variable(input_percentages.mul_(int(inputs.size(3))).int(), requires_grad=False)
 
             inputs = Variable(inputs, volatile=True)
 
@@ -353,11 +352,9 @@ if __name__ == '__main__':
             if args.cuda:
                 inputs = inputs.cuda()
 
-            out = model(inputs)  # NxTxH
-            seq_length = out.size(1)
-            sizes = input_percentages.mul_(int(seq_length)).int()
+            out, output_sizes = model(inputs, input_sizes)
 
-            decoded_output, _ = decoder.decode(out.data, sizes)
+            decoded_output, _ = decoder.decode(out.data, output_sizes.data)
             target_strings = decoder.convert_to_strings(split_targets)
             wer, cer = 0, 0
             for x in range(len(target_strings)):

@@ -1,6 +1,8 @@
 import argparse
 import warnings
 
+import torch
+
 warnings.simplefilter('ignore')
 
 from decoder import GreedyDecoder
@@ -84,8 +86,9 @@ if __name__ == '__main__':
     parser = SpectrogramParser(audio_conf, normalize=True)
 
     spect = parser.parse_audio(args.audio_path).contiguous()
-    spect = spect.view(1, 1, spect.size(0), spect.size(1))
-    out = model(Variable(spect, volatile=True))
+    spect = Variable(spect.view(1, 1, spect.size(0), spect.size(1)), volatile=True)
+    input_sizes = Variable(torch.IntTensor([spect.size(3)]).int(), requires_grad=False)
+    out, output_sizes = model(spect, input_sizes)
     out = out.transpose(0, 1)  # TxNxH
-    decoded_output, decoded_offsets = decoder.decode(out.data)
+    decoded_output, decoded_offsets = decoder.decode(out.data, output_sizes.data)
     print(json.dumps(decode_results(model, decoded_output, decoded_offsets)))
