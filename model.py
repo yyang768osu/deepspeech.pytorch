@@ -14,7 +14,10 @@ supported_rnns = {
 }
 supported_rnns_inv = dict((v, k) for k, v in supported_rnns.items())
 
-
+# [YY comment] SequenceWise module is used as a wrapper on top of BN to achieve sequence-wise batch-normalizaiton.
+# For any input of size Time x BatchSize x FeatureSize, convert to (TimexBatchSize) x FeatureSize before
+# passing into the batch-normalization layer and reshape the output back to Time x BatchSize x FeatureSize
+# after normalization
 class SequenceWise(nn.Module):
     def __init__(self, module):
         """
@@ -38,7 +41,7 @@ class SequenceWise(nn.Module):
         tmpstr += ')'
         return tmpstr
 
-
+# [YY comment] What does this module do? 
 class InferenceBatchSoftmax(nn.Module):
     def forward(self, input_):
         if not self.training:
@@ -46,14 +49,16 @@ class InferenceBatchSoftmax(nn.Module):
         else:
             return input_
 
-
+# [YY comment] RNN with sequence-wise batch-normalization and bidirectional summation (if bidirectional=True)
 class BatchRNN(nn.Module):
     def __init__(self, input_size, hidden_size, rnn_type=nn.LSTM, bidirectional=False, batch_norm=True):
         super(BatchRNN, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
+        # Wrapp BatchNorm1d with sequence-wise input
         self.batch_norm = SequenceWise(nn.BatchNorm1d(input_size)) if batch_norm else None
+        # the hidden_size is per-direction
         self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size,
                             bidirectional=bidirectional, bias=False)
         self.num_directions = 2 if bidirectional else 1
@@ -62,14 +67,16 @@ class BatchRNN(nn.Module):
         self.rnn.flatten_parameters()
 
     def forward(self, x):
+        # [YY comment] batch normalization happens before affline transform
         if self.batch_norm is not None:
             x = self.batch_norm(x)
         x, _ = self.rnn(x)
+        # [YY comment] in case of bidirectional rnn, sum the hidden output from the two directions.
         if self.bidirectional:
             x = x.view(x.size(0), x.size(1), 2, -1).sum(2).view(x.size(0), x.size(1), -1)  # (TxNxH*2) -> (TxNxH) by sum
         return x
 
-
+# [YY comment] Row wise lookahead convolution
 class Lookahead(nn.Module):
     # Wang et al 2016 - Lookahead Convolution Layer for Unidirectional Recurrent Neural Networks
     # input shape - sequence, batch, feature - TxNxH
