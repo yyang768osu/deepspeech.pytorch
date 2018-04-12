@@ -146,6 +146,7 @@ class DeepSpeech(nn.Module):
             nn.Hardtanh(0, 20, inplace=True)
         )
         # Based on above convolutions and spectrogram size using conv formula (W - F + 2P)/ S+1
+        # [YY comment] how to understand the first line below? subsampling?
         rnn_input_size = int(math.floor((sample_rate * window_size) / 2) + 1)
         rnn_input_size = int(math.floor(rnn_input_size - 41) / 2 + 1)
         rnn_input_size = int(math.floor(rnn_input_size - 21) / 2 + 1)
@@ -170,6 +171,8 @@ class DeepSpeech(nn.Module):
             nn.BatchNorm1d(rnn_hidden_size),
             nn.Linear(rnn_hidden_size, num_classes, bias=False)
         )
+        
+        # [YY comment] collapse time x batch and treat as batch
         self.fc = nn.Sequential(
             SequenceWise(fully_connected),
         )
@@ -177,7 +180,10 @@ class DeepSpeech(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
-
+        
+        # [YY comment] convert batch x channel x height x width to
+        #                      batch x (channelxheight) x width/time
+        #                      time x batch x (channelxheight)
         sizes = x.size()
         x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
         x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
@@ -191,6 +197,7 @@ class DeepSpeech(nn.Module):
         x = x.transpose(0, 1)
         # identity in training mode, softmax in eval mode
         x = self.inference_softmax(x)
+        # [YY commnet] batch x time x logit/softmax
         return x
 
     @classmethod
